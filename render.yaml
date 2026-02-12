@@ -1,7 +1,17 @@
 services:
   - type: web
-    name: groq-chatbot
+    name: groq-chatbot-render
     runtime: python
+    region: singapore
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
-    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: MONGO_URI
+        value: mongodb+srv://Vishal_Bhagat:ABCD%40123@cluster0.w5azzla.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
+      - key: GROQ_API_KEY
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
