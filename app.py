@@ -6,7 +6,6 @@ import os
 from datetime import datetime
 from dotenv import load_dotenv
 import secrets
-from urllib.parse import quote_plus
 
 # Load environment variables from .env file (for local development only)
 load_dotenv()
@@ -21,85 +20,89 @@ PORT = int(os.environ.get('PORT', 5000))
 HOST = '0.0.0.0'  # CRITICAL for Render!
 
 # ============================================
-# MONGODB CONNECTION - FROM ENVIRONMENT VARIABLES
+# MONGODB CONNECTION - FROM ENVIRONMENT VARIABLES ONLY
 # ============================================
-# Get MongoDB URI from environment variable (set in Render dashboard)
+# Get MongoDB URI from environment variable (set in Render dashboard or .env file)
 MONGO_URI = os.environ.get('MONGO_URI')
 
-# Fallback for local development only - NEVER hardcode in production!
 if not MONGO_URI:
-    print("⚠️  MONGO_URI not found in environment variables!")
-    print("📝 Using hardcoded connection string for LOCAL DEVELOPMENT ONLY")
-    username = "Vishal_Bhagat"
-    password = "ABCD@123"  # ⚠️ Update this to your actual password
-    cluster = "cluster0.w5azzla.mongodb.net"
-    encoded_password = quote_plus(password)
-    MONGO_URI = f"mongodb+srv://{username}:{encoded_password}@{cluster}/?retryWrites=true&w=majority&appName=Cluster0"
+    print("="*50)
+    print("❌ CRITICAL ERROR: MONGO_URI environment variable is not set!")
+    print("📌 For LOCAL DEVELOPMENT: Create .env file with MONGO_URI=your_connection_string")
+    print("📌 For RENDER: Go to Dashboard → Environment Variables → Add MONGO_URI")
+    print("="*50)
+    MONGO_URI = None
 
 print("="*50)
 print("🚀 Starting Groq Chatbot with MongoDB Atlas")
 print("="*50)
 print(f"📌 Environment: {'Production (Render)' if os.environ.get('RENDER') else 'Local Development'}")
+print(f"📌 MongoDB URI: {'✅ Set' if MONGO_URI else '❌ Not Set'}")
 print("="*50)
 
 # MongoDB Connection with proper authentication
-try:
-    # Connect to MongoDB with explicit auth parameters
-    client = MongoClient(
-        MONGO_URI,
-        serverSelectionTimeoutMS=5000,
-        connectTimeoutMS=30000,
-        socketTimeoutMS=30000,
-        authSource='admin'  # Critical for Atlas authentication
-    )
-    
-    # Test the connection
-    client.admin.command('ping')
-    print("✅ MongoDB Atlas connected successfully!")
-    
-    # Create/use database and collection
-    db = client['chatbot_db']
-    
-    # Check if collection exists, if not create it
-    if 'conversations' not in db.list_collection_names():
-        conversations = db.create_collection('conversations')
-        print("✅ Created new collection: conversations")
-    else:
-        conversations = db['conversations']
-        print("✅ Using existing collection: conversations")
-    
-    # Create indexes for better performance
-    conversations.create_index('session_id')
-    conversations.create_index('updated_at')
-    
-    print("✅ Database indexes created")
-    print("="*50)
-    
-except ServerSelectionTimeoutError as e:
-    print(f"❌ MongoDB server selection timeout: {e}")
-    print("🔧 Please check your network access in MongoDB Atlas")
-    conversations = None
-    
-except ConnectionFailure as e:
-    print(f"❌ MongoDB connection failed: {e}")
-    print("🔧 Make sure your IP is whitelisted in MongoDB Atlas")
-    conversations = None
-    
-except Exception as e:
-    print(f"❌ MongoDB connection error: {e}")
-    print("🔧 Check your username and password")
+conversations = None
+if MONGO_URI:
+    try:
+        # Connect to MongoDB with explicit auth parameters
+        client = MongoClient(
+            MONGO_URI,
+            serverSelectionTimeoutMS=5000,
+            connectTimeoutMS=30000,
+            socketTimeoutMS=30000,
+            authSource='admin'  # Critical for Atlas authentication
+        )
+        
+        # Test the connection
+        client.admin.command('ping')
+        print("✅ MongoDB Atlas connected successfully!")
+        
+        # Create/use database and collection
+        db = client['chatbot_db']
+        
+        # Check if collection exists, if not create it
+        if 'conversations' not in db.list_collection_names():
+            conversations = db.create_collection('conversations')
+            print("✅ Created new collection: conversations")
+        else:
+            conversations = db['conversations']
+            print("✅ Using existing collection: conversations")
+        
+        # Create indexes for better performance
+        conversations.create_index('session_id')
+        conversations.create_index('updated_at')
+        
+        print("✅ Database indexes created")
+        
+    except ServerSelectionTimeoutError as e:
+        print(f"❌ MongoDB server selection timeout: {e}")
+        print("🔧 Please check your network access in MongoDB Atlas")
+        conversations = None
+        
+    except ConnectionFailure as e:
+        print(f"❌ MongoDB connection failed: {e}")
+        print("🔧 Make sure your IP is whitelisted in MongoDB Atlas")
+        conversations = None
+        
+    except Exception as e:
+        print(f"❌ MongoDB connection error: {e}")
+        print("🔧 Check your connection string and credentials")
+        conversations = None
+else:
+    print("❌ MongoDB connection skipped - MONGO_URI not set")
     conversations = None
 
 # ============================================
-# GROQ API CONNECTION
+# GROQ API CONNECTION - FROM ENVIRONMENT VARIABLES ONLY
 # ============================================
+groq_client = None
 try:
     # Get Groq API key from environment variable
     groq_api_key = os.environ.get('GROQ_API_KEY')
     if not groq_api_key:
         print("⚠️  GROQ_API_KEY not found in environment variables!")
-        print("📝 Please add your Groq API key to Render Dashboard → Environment Variables")
-        groq_client = None
+        print("📌 For LOCAL DEVELOPMENT: Add GROQ_API_KEY=your_key to .env file")
+        print("📌 For RENDER: Add GROQ_API_KEY to Dashboard → Environment Variables")
     else:
         groq_client = Groq(api_key=groq_api_key)
         print("✅ Groq API initialized successfully")
@@ -162,7 +165,7 @@ def chat():
         # Check if Groq is available
         if groq_client is None:
             return jsonify({
-                'response': '⚠️ Groq API is not configured. Please add GROQ_API_KEY to environment variables.',
+                'response': '⚠️ Groq API is not configured. Please set GROQ_API_KEY environment variable.',
                 'status': 'error'
             })
         
@@ -306,6 +309,12 @@ def health_check():
 @app.route('/test-mongodb', methods=['GET'])
 def test_mongodb():
     """Test MongoDB connection"""
+    if not MONGO_URI:
+        return jsonify({
+            'status': 'error',
+            'message': 'MONGO_URI environment variable is not set'
+        })
+    
     if conversations is not None:
         try:
             # Try to insert a test document
@@ -340,6 +349,7 @@ if __name__ == '__main__':
         print(f"🌐 Running on Render - http://{HOST}:{PORT}")
     else:
         print("🌐 Open http://127.0.0.1:5000 in your browser")
+        print("📌 Make sure .env file exists with MONGO_URI and GROQ_API_KEY")
     print("="*50 + "\n")
     
     # IMPORTANT: Use HOST and PORT for Render, debug=False for production
